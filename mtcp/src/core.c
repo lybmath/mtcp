@@ -1103,8 +1103,10 @@ MTCPRunThread(void *arg)
 	/* remember this context pointer for signal processing */
 	g_pctx[cpu] = ctx;
 
-        /* this must be commented for odp running */
-	// mlockall(MCL_CURRENT);
+	/* this should be avoided for current odp implementation */
+        if (current_iomodule_func != &odp_module_func) {
+		mlockall(MCL_CURRENT);
+	}
 
 	// attach (nic device, queue)
 	working = AttachDevice(ctx);
