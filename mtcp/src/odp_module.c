@@ -78,22 +78,6 @@ struct pktio_args_t {
 
 void odp_release_module();
 
-void dump_packets(struct mtcp_thread_context *ctxt, int ifidx, odp_packet_t pkts[], int num, const char* inf) {
-  mtcp_manager_t mtcp;
-  char *buf;
-  int i, len;
-
-  
-  TRACE_INFO("dump %d pakcets for %s\n", num, inf);
-    
-  mtcp = ctxt->mtcp_manager;
-  for (i = 0 ; i < num ; i ++) {
-    buf = (char*)odp_packet_data(pkts[i]);
-    len = odp_packet_buf_len(pkts[i]);
-    DumpPacket(mtcp, buf, len, inf, ifidx);
-  }
-}
-
 static struct pktio_args_t pktios[MAX_DEVICES];
 /*----------------------------------------------------------------------------*/
 
@@ -376,10 +360,6 @@ odp_release_pkt(struct mtcp_thread_context *ctxt, int ifidx, unsigned char *pkt_
 uint8_t *
 odp_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 {
-#ifdef  _DEBUG_
-        TRACE_INFO("[MTCP-ODP]: get_wptr.\n");
-#endif
-
 	struct odp_private_context *opc;
 	mtcp_manager_t mtcp;
 	odp_pool_t pool;
@@ -388,9 +368,7 @@ odp_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 	mtcp = ctxt->mtcp_manager;
 	opc = (struct odp_private_context *)ctxt->io_private_context;
 	if (opc->snd_pkttbl[ifidx].num == MAX_PKT_BURST) {
-#ifdef _DEBUG_
-	        TRACE_INFO("[MTCP-ODP] Warning: exceed the burst size.\n");
-#endif
+	        TRACE_DBG("[MTCP-ODP] Warning: exceed the burst size.\n");
 		odp_send_pkts(ctxt, ifidx);
 	}
 
@@ -412,17 +390,12 @@ odp_get_wptr(struct mtcp_thread_context *ctxt, int ifidx, uint16_t pktsize)
 #ifdef NETSTAT
 	//mtcp->nstat.tx_bytes[nif] += pktsize + 24;
 #endif
-
 	return (uint8_t *)odp_packet_data(pkt);
 }
 /*----------------------------------------------------------------------------*/
 int
 odp_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 {
-#ifdef  _DEBUG_
-        TRACE_INFO("[MTCP-ODP]: send_pkts.\n");
-#endif
-
         /* nif is the real index of CONFIG.eths */
 	
 	struct odp_private_context *opc;
@@ -440,7 +413,7 @@ odp_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 	total = 0;
 	for (qidx = 0; qidx < q_num && expected; ++qidx) {
 	        pktout = opc->pktout[ifidx].queues[qidx];
-		sent = odp_pktio_send_queue(pktout, pkts, expected);
+		sent = odp_pktio_send_queue(pktout, pkts + total, expected);
 		expected -= sent;
 		total += sent;
 		if (qidx == q_num - 1 && expected > 0) {
@@ -459,10 +432,6 @@ odp_send_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 int32_t
 odp_recv_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 {
-#ifdef  _DEBUG_
-        TRACE_INFO("[MTCP-ODP]: recv_pkts.\n");
-#endif
-
         /* ifidx is the real index of CONFIG.eths */
   
 	struct odp_private_context *opc;
@@ -473,7 +442,7 @@ odp_recv_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 	q_num = opc->pktin[ifidx].num;
 	
  	if (opc->rcv_pkttbl[ifidx].num != 0) {
-	        /* process remaining packets */
+	        /* free previously processed packets */
 	        odp_packet_free_multi(opc->rcv_pkttbl[ifidx].pkts, opc->rcv_pkttbl[ifidx].num);
 		opc->rcv_pkttbl[ifidx].num = 0;
 	}
@@ -491,23 +460,13 @@ odp_recv_pkts(struct mtcp_thread_context *ctxt, int ifidx)
 	}
 
 	opc->rcv_pkttbl[ifidx].num = total;
-
-#ifdef  _DEBUG_
-	if (total > 0) {
-	  dump_packets(ctxt, ifidx, opc->rcv_pkttbl[ifidx].pkts, total, "[LYB-IN]");
-	}
-#endif
-
+	
 	return total;
 }
 /*----------------------------------------------------------------------------*/
 uint8_t *
 odp_get_rptr(struct mtcp_thread_context *ctxt, int ifidx, int index, uint16_t *len)
 {
-#ifdef  _DEBUG_
-        TRACE_INFO("[MTCP-ODP]: get rptr.\n");
-#endif
-
 	/* ifidx is the real index of CONFIG.eths */
 
 	struct odp_private_context *opc;
@@ -516,7 +475,7 @@ odp_get_rptr(struct mtcp_thread_context *ctxt, int ifidx, int index, uint16_t *l
 	opc = (struct odp_private_context *)ctxt->io_private_context;
 
 	pkt = opc->rcv_pkttbl[ifidx].pkts[index];
-	*len = (uint16_t)odp_packet_buf_len(pkt);
+	*len = (uint16_t)odp_packet_len(pkt);
 	return (uint8_t *)odp_packet_data(pkt);
 }
 /*----------------------------------------------------------------------------*/
@@ -573,14 +532,14 @@ odp_release_module()
 		TRACE_INFO("ODP pktio stop %d.\n", portid);
 		ret = odp_pktio_stop(pktio);
 		if (ret < 0) {
-		        TRACE_ERROR("stop pktio failed on %d", portid);
+		        TRACE_ERROR("stop pktio failed on %d\n", portid);
 		        continue;
 		}
 
 		TRACE_INFO("ODP pktio close %d.\n", portid);
 		ret = odp_pktio_close(pktio);
 		if (ret < 0) {
-		        TRACE_ERROR("close pktio failed on %d", portid);
+		        TRACE_ERROR("close pktio failed on %d\n", portid);
 		        continue;
 		}
 	}
@@ -589,7 +548,7 @@ odp_release_module()
 	pool = odp_pool_lookup(ODP_POOL_NAME);
 	ret = odp_pool_destroy(pool);
 	if (ret < 0) {
-	        TRACE_ERROR("destroy pool failed");
+	        TRACE_ERROR("destroy pool failed\n");
 	}
 }
 /*----------------------------------------------------------------------------*/
